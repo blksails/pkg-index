@@ -1,3 +1,4 @@
 .env
 
-public/pkg/
+public/*
+!public/index.html

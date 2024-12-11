@@ -16,7 +16,7 @@ import (
 const (
 	orgName     = "blksails"
 	baseDomain  = "pkg.blksails.net"
-	basePackage = "pkg.blksails.net/pkg"
+	basePackage = "pkg.blksails.net"
 )
 
 type PackageInfo struct {
