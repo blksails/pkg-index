@@ -20,8 +20,9 @@ const (
 )
 
 type PackageInfo struct {
-	ImportPath string
-	RepoURL    string
+	ImportPath  string
+	RepoURL     string
+	Description string
 }
 
 func main() {
@@ -43,37 +44,76 @@ func main() {
 		log.Fatalf("Error listing repositories: %v", err)
 	}
 
+	var packages []PackageInfo
+
 	for _, repo := range repos {
 		if repo.GetLanguage() != "Go" {
 			continue
 		}
 
-		// 获取 go.mod 文件内容
-		content, _, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), "go.mod", nil)
+		// Get repository contents recursively
+		_, contents, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), "", nil)
+		if err != nil {
+			log.Printf("Error getting contents for %s: %v", repo.GetName(), err)
+			continue
+		}
+
+		// Get go.mod file first to verify the module name
+		modContent, _, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), "go.mod", nil)
 		if err != nil {
 			continue
 		}
 
-		fileContent, err := content.GetContent()
+		fileContent, err := modContent.GetContent()
 		if err != nil {
 			continue
 		}
 
-		// 解析 module 名称
 		moduleName := parseModuleName(fileContent)
 		if !strings.HasPrefix(moduleName, basePackage) {
 			continue
 		}
 
-		// 生成对应的 HTML 文件
-		pkgInfo := PackageInfo{
-			ImportPath: moduleName,
-			RepoURL:    repo.GetHTMLURL(),
-		}
+		// 添加到包列表
+		packages = append(packages, PackageInfo{
+			ImportPath:  moduleName,
+			RepoURL:     repo.GetHTMLURL(),
+			Description: repo.GetDescription(),
+		})
 
+		// Generate HTML for main module
+		pkgInfo := PackageInfo{
+			ImportPath:  moduleName,
+			RepoURL:     repo.GetHTMLURL(),
+			Description: repo.GetDescription(),
+		}
 		if err := generateHTML(pkgInfo); err != nil {
 			log.Printf("Error generating HTML for %s: %v", moduleName, err)
 		}
+
+		// Process all Go files in subdirectories
+		for _, content := range contents {
+			if content.GetType() == "file" && strings.HasSuffix(content.GetName(), ".go") {
+				dir := filepath.Dir(content.GetPath())
+				if dir == "." {
+					continue // Skip root directory files as they're already handled
+				}
+
+				subPkgInfo := PackageInfo{
+					ImportPath:  filepath.Join(moduleName, dir),
+					RepoURL:     repo.GetHTMLURL(),
+					Description: repo.GetDescription(),
+				}
+				if err := generateHTML(subPkgInfo); err != nil {
+					log.Printf("Error generating HTML for %s: %v", subPkgInfo.ImportPath, err)
+				}
+			}
+		}
+	}
+
+	// 生成主页
+	if err := generateIndexHTML(packages); err != nil {
+		log.Printf("Error generating index HTML: %v", err)
 	}
 }
 
@@ -116,6 +156,78 @@ func generateHTML(pkg PackageInfo) error {
 	defer f.Close()
 
 	if err := tmpl.Execute(f, pkg); err != nil {
+		return fmt.Errorf("failed to execute template: %v", err)
+	}
+
+	return nil
+}
+
+func generateIndexHTML(packages []PackageInfo) error {
+	tmpl := template.Must(template.New("main-index").Parse(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>pkg.blksails.net</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+        .package-list {
+            margin-top: 2rem;
+        }
+        .package-item {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        .package-item h3 {
+            margin: 0 0 0.5rem 0;
+        }
+        .package-item p {
+            margin: 0.5rem 0;
+            color: #666;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <h1>pkg.blksails.net</h1>
+    <p>This is the package index for blksails Go packages.</p>
+    <p>To use these packages in your Go project, simply import them using the <code>pkg.blksails.net/...</code>
+        import path.</p>
+    
+    <div class="package-list">
+        <h2>Available Packages</h2>
+        {{range .}}
+        <div class="package-item">
+            <h3><a href="{{.RepoURL}}">{{.ImportPath}}</a></h3>
+            {{if .Description}}
+            <p>{{.Description}}</p>
+            {{end}}
+            <p><code>go get {{.ImportPath}}</code></p>
+        </div>
+        {{end}}
+    </div>
+</body>
+</html>`))
+
+	f, err := os.Create("public/index.html")
+	if err != nil {
+		return fmt.Errorf("failed to create index file: %v", err)
+	}
+	defer f.Close()
+
+	if err := tmpl.Execute(f, packages); err != nil {
 		return fmt.Errorf("failed to execute template: %v", err)
 	}
 
