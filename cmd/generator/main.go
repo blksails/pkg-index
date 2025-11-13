@@ -39,17 +39,22 @@ func main() {
 	client := github.NewClient(tc)
 
 	// 获取组织下的所有仓库
+	log.Printf("Fetching repositories for organization: %s", orgName)
 	repos, _, err := client.Repositories.ListByOrg(ctx, orgName, nil)
 	if err != nil {
 		log.Fatalf("Error listing repositories: %v", err)
 	}
+	log.Printf("Found %d repositories", len(repos))
 
 	var packages []PackageInfo
 
 	for _, repo := range repos {
+		log.Printf("Processing repository: %s", repo.GetName())
 		if repo.GetLanguage() != "Go" {
+			log.Printf("  Skipping %s: not a Go repository (language: %s)", repo.GetName(), repo.GetLanguage())
 			continue
 		}
+		log.Printf("  Found Go repository: %s", repo.GetName())
 
 		// Get repository contents recursively
 		_, contents, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), "", nil)
@@ -59,18 +64,23 @@ func main() {
 		}
 
 		// Get go.mod file first to verify the module name
+		log.Printf("  Checking go.mod for %s", repo.GetName())
 		modContent, _, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), "go.mod", nil)
 		if err != nil {
+			log.Printf("  No go.mod found for %s, skipping", repo.GetName())
 			continue
 		}
 
 		fileContent, err := modContent.GetContent()
 		if err != nil {
+			log.Printf("  Failed to read go.mod for %s: %v", repo.GetName(), err)
 			continue
 		}
 
 		moduleName := parseModuleName(fileContent)
+		log.Printf("  Module name: %s", moduleName)
 		if !strings.HasPrefix(moduleName, basePackage) {
+			log.Printf("  Skipping %s: module name doesn't start with %s", repo.GetName(), basePackage)
 			continue
 		}
 
@@ -82,16 +92,20 @@ func main() {
 		})
 
 		// Generate HTML for main module
+		log.Printf("  Generating HTML for main module: %s", moduleName)
 		pkgInfo := PackageInfo{
 			ImportPath:  moduleName,
 			RepoURL:     repo.GetHTMLURL(),
 			Description: repo.GetDescription(),
 		}
 		if err := generateHTML(pkgInfo); err != nil {
-			log.Printf("Error generating HTML for %s: %v", moduleName, err)
+			log.Printf("  Error generating HTML for %s: %v", moduleName, err)
+		} else {
+			log.Printf("  ✓ Generated HTML for %s", moduleName)
 		}
 
 		// Process all Go files in subdirectories
+		subPkgCount := 0
 		for _, content := range contents {
 			if content.GetType() == "file" && strings.HasSuffix(content.GetName(), ".go") {
 				dir := filepath.Dir(content.GetPath())
@@ -105,16 +119,29 @@ func main() {
 					Description: repo.GetDescription(),
 				}
 				if err := generateHTML(subPkgInfo); err != nil {
-					log.Printf("Error generating HTML for %s: %v", subPkgInfo.ImportPath, err)
+					log.Printf("  Error generating HTML for %s: %v", subPkgInfo.ImportPath, err)
+				} else {
+					log.Printf("  ✓ Generated HTML for subpackage: %s", subPkgInfo.ImportPath)
+					subPkgCount++
 				}
 			}
+		}
+		if subPkgCount > 0 {
+			log.Printf("  Generated %d subpackage(s) for %s", subPkgCount, repo.GetName())
 		}
 	}
 
 	// 生成主页
+	log.Printf("\nGenerating index HTML with %d package(s)", len(packages))
 	if err := generateIndexHTML(packages); err != nil {
 		log.Printf("Error generating index HTML: %v", err)
+	} else {
+		log.Printf("✓ Successfully generated index HTML")
 	}
+
+	log.Printf("\n=== Generation Complete ===")
+	log.Printf("Total packages processed: %d", len(packages))
+	log.Printf("Index page: public/index.html")
 }
 
 func parseModuleName(content string) string {
