@@ -28,6 +28,7 @@ type PackageInfo struct {
 func main() {
 	ctx := context.Background()
 
+	log.Printf("GITHUB_TOKEN: %s", os.Getenv("GITHUB_TOKEN"))
 	// 使用 GitHub token 创建客户端
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
