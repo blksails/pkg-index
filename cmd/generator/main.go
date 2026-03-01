@@ -20,9 +20,10 @@ const (
 )
 
 type PackageInfo struct {
-	ImportPath  string
-	RepoURL     string
-	Description string
+	ImportPath     string // module path from go.mod
+	RepoImportPath string // VCS root import path (for go-import prefix)
+	RepoURL        string
+	Description    string
 }
 
 func main() {
@@ -80,10 +81,12 @@ func main() {
 				moduleName := parseModuleName(fileContent)
 				log.Printf("  Root module: %s", moduleName)
 				if strings.HasPrefix(moduleName, basePackage) {
+					repoImportPath := basePackage + "/" + repo.GetName()
 					pkgInfo := PackageInfo{
-						ImportPath:  moduleName,
-						RepoURL:     repo.GetHTMLURL(),
-						Description: repo.GetDescription(),
+						ImportPath:     moduleName,
+						RepoImportPath: repoImportPath,
+						RepoURL:        repo.GetHTMLURL(),
+						Description:    repo.GetDescription(),
 					}
 					packages = append(packages, pkgInfo)
 					if err := generateHTML(pkgInfo); err != nil {
@@ -100,9 +103,10 @@ func main() {
 								continue
 							}
 							subPkgInfo := PackageInfo{
-								ImportPath:  filepath.Join(moduleName, dir),
-								RepoURL:     repo.GetHTMLURL(),
-								Description: repo.GetDescription(),
+								ImportPath:     filepath.Join(moduleName, dir),
+								RepoImportPath: repoImportPath,
+								RepoURL:        repo.GetHTMLURL(),
+								Description:    repo.GetDescription(),
 							}
 							if err := generateHTML(subPkgInfo); err != nil {
 								log.Printf("  Error generating HTML for %s: %v", subPkgInfo.ImportPath, err)
@@ -126,6 +130,7 @@ func main() {
 		}
 
 		// Check first-level subdirectories for go.mod (sub-modules)
+		repoImportPath := basePackage + "/" + repo.GetName()
 		for _, content := range contents {
 			if content.GetType() != "dir" {
 				continue
@@ -147,9 +152,10 @@ func main() {
 				continue
 			}
 			pkgInfo := PackageInfo{
-				ImportPath:  moduleName,
-				RepoURL:     repo.GetHTMLURL(),
-				Description: repo.GetDescription(),
+				ImportPath:     moduleName,
+				RepoImportPath: repoImportPath,
+				RepoURL:        repo.GetHTMLURL(),
+				Description:    repo.GetDescription(),
 			}
 			packages = append(packages, pkgInfo)
 			if err := generateHTML(pkgInfo); err != nil {
@@ -188,8 +194,8 @@ func generateHTML(pkg PackageInfo) error {
 <html>
 <head>
     <meta charset="utf-8">
-    <meta name="go-import" content="{{ .ImportPath }} git {{ .RepoURL }}">
-    <meta name="go-source" content="{{ .ImportPath }} {{ .RepoURL }} {{ .RepoURL }}/tree/master{/dir} {{ .RepoURL }}/blob/master{/dir}/{file}#L{line}">
+    <meta name="go-import" content="{{ .RepoImportPath }} git {{ .RepoURL }}">
+    <meta name="go-source" content="{{ .RepoImportPath }} {{ .RepoURL }} {{ .RepoURL }}/tree/master{/dir} {{ .RepoURL }}/blob/master{/dir}/{file}#L{line}">
     <meta http-equiv="refresh" content="0; url={{ .RepoURL }}">
 </head>
 <body>
