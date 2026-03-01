@@ -51,11 +51,9 @@ func main() {
 
 	for _, repo := range repos {
 		log.Printf("Processing repository: %s", repo.GetName())
-		if repo.GetLanguage() != "Go" {
-			log.Printf("  Skipping %s: not a Go repository (language: %s)", repo.GetName(), repo.GetLanguage())
-			continue
+		if repo.GetLanguage() == "Go" {
+			log.Printf("  Found Go repository: %s", repo.GetName())
 		}
-		log.Printf("  Found Go repository: %s", repo.GetName())
 
 		// Get repository root contents
 		_, contents, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), "", nil)
