@@ -57,78 +57,97 @@ func main() {
 		}
 		log.Printf("  Found Go repository: %s", repo.GetName())
 
-		// Get repository contents recursively
+		// Get repository root contents
 		_, contents, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), "", nil)
 		if err != nil {
 			log.Printf("Error getting contents for %s: %v", repo.GetName(), err)
 			continue
 		}
 
-		// Get go.mod file first to verify the module name
-		log.Printf("  Checking go.mod for %s", repo.GetName())
-		modContent, _, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), "go.mod", nil)
-		if err != nil {
-			log.Printf("  No go.mod found for %s, skipping", repo.GetName())
-			continue
-		}
+		// Check root go.mod
+		log.Printf("  Checking root go.mod for %s", repo.GetName())
+		if modContent, _, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), "go.mod", nil); err == nil {
+			if fileContent, err := modContent.GetContent(); err == nil {
+				moduleName := parseModuleName(fileContent)
+				log.Printf("  Root module: %s", moduleName)
+				if strings.HasPrefix(moduleName, basePackage) {
+					pkgInfo := PackageInfo{
+						ImportPath:  moduleName,
+						RepoURL:     repo.GetHTMLURL(),
+						Description: repo.GetDescription(),
+					}
+					packages = append(packages, pkgInfo)
+					if err := generateHTML(pkgInfo); err != nil {
+						log.Printf("  Error generating HTML for %s: %v", moduleName, err)
+					} else {
+						log.Printf("  ✓ Generated HTML for %s", moduleName)
+					}
 
-		fileContent, err := modContent.GetContent()
-		if err != nil {
-			log.Printf("  Failed to read go.mod for %s: %v", repo.GetName(), err)
-			continue
-		}
-
-		moduleName := parseModuleName(fileContent)
-		log.Printf("  Module name: %s", moduleName)
-		if !strings.HasPrefix(moduleName, basePackage) {
-			log.Printf("  Skipping %s: module name doesn't start with %s", repo.GetName(), basePackage)
-			continue
-		}
-
-		// 添加到包列表
-		packages = append(packages, PackageInfo{
-			ImportPath:  moduleName,
-			RepoURL:     repo.GetHTMLURL(),
-			Description: repo.GetDescription(),
-		})
-
-		// Generate HTML for main module
-		log.Printf("  Generating HTML for main module: %s", moduleName)
-		pkgInfo := PackageInfo{
-			ImportPath:  moduleName,
-			RepoURL:     repo.GetHTMLURL(),
-			Description: repo.GetDescription(),
-		}
-		if err := generateHTML(pkgInfo); err != nil {
-			log.Printf("  Error generating HTML for %s: %v", moduleName, err)
-		} else {
-			log.Printf("  ✓ Generated HTML for %s", moduleName)
-		}
-
-		// Process all Go files in subdirectories
-		subPkgCount := 0
-		for _, content := range contents {
-			if content.GetType() == "file" && strings.HasSuffix(content.GetName(), ".go") {
-				dir := filepath.Dir(content.GetPath())
-				if dir == "." {
-					continue // Skip root directory files as they're already handled
-				}
-
-				subPkgInfo := PackageInfo{
-					ImportPath:  filepath.Join(moduleName, dir),
-					RepoURL:     repo.GetHTMLURL(),
-					Description: repo.GetDescription(),
-				}
-				if err := generateHTML(subPkgInfo); err != nil {
-					log.Printf("  Error generating HTML for %s: %v", subPkgInfo.ImportPath, err)
+					subPkgCount := 0
+					for _, content := range contents {
+						if content.GetType() == "file" && strings.HasSuffix(content.GetName(), ".go") {
+							dir := filepath.Dir(content.GetPath())
+							if dir == "." {
+								continue
+							}
+							subPkgInfo := PackageInfo{
+								ImportPath:  filepath.Join(moduleName, dir),
+								RepoURL:     repo.GetHTMLURL(),
+								Description: repo.GetDescription(),
+							}
+							if err := generateHTML(subPkgInfo); err != nil {
+								log.Printf("  Error generating HTML for %s: %v", subPkgInfo.ImportPath, err)
+							} else {
+								log.Printf("  ✓ Generated HTML for subpackage: %s", subPkgInfo.ImportPath)
+								subPkgCount++
+							}
+						}
+					}
+					if subPkgCount > 0 {
+						log.Printf("  Generated %d subpackage(s) for %s", subPkgCount, repo.GetName())
+					}
 				} else {
-					log.Printf("  ✓ Generated HTML for subpackage: %s", subPkgInfo.ImportPath)
-					subPkgCount++
+					log.Printf("  Skipping root module: doesn't start with %s", basePackage)
 				}
+			} else {
+				log.Printf("  Failed to read root go.mod: %v", err)
 			}
+		} else {
+			log.Printf("  No root go.mod found for %s", repo.GetName())
 		}
-		if subPkgCount > 0 {
-			log.Printf("  Generated %d subpackage(s) for %s", subPkgCount, repo.GetName())
+
+		// Check first-level subdirectories for go.mod (sub-modules)
+		for _, content := range contents {
+			if content.GetType() != "dir" {
+				continue
+			}
+			subDir := content.GetName()
+			subModContent, _, _, err := client.Repositories.GetContents(ctx, orgName, repo.GetName(), subDir+"/go.mod", nil)
+			if err != nil {
+				continue
+			}
+			fileContent, err := subModContent.GetContent()
+			if err != nil {
+				log.Printf("  Failed to read %s/go.mod: %v", subDir, err)
+				continue
+			}
+			moduleName := parseModuleName(fileContent)
+			log.Printf("  Sub-module found: %s (in %s/)", moduleName, subDir)
+			if !strings.HasPrefix(moduleName, basePackage) {
+				log.Printf("  Skipping sub-module %s: doesn't start with %s", moduleName, basePackage)
+				continue
+			}
+			pkgInfo := PackageInfo{
+				ImportPath:  moduleName,
+				RepoURL:     repo.GetHTMLURL(),
+				Description: repo.GetDescription(),
+			}
+			packages = append(packages, pkgInfo)
+			if err := generateHTML(pkgInfo); err != nil {
+				log.Printf("  Error generating HTML for sub-module %s: %v", moduleName, err)
+			} else {
+				log.Printf("  ✓ Generated HTML for sub-module: %s", moduleName)
+			}
 		}
 	}
 
