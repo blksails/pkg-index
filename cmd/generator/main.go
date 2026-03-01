@@ -39,11 +39,22 @@ func main() {
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
 
-	// 获取组织下的所有仓库
+	// 获取组织下的所有仓库（分页）
 	log.Printf("Fetching repositories for organization: %s", orgName)
-	repos, _, err := client.Repositories.ListByOrg(ctx, orgName, nil)
-	if err != nil {
-		log.Fatalf("Error listing repositories: %v", err)
+	var repos []*github.Repository
+	opt := &github.RepositoryListByOrgOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		page, resp, err := client.Repositories.ListByOrg(ctx, orgName, opt)
+		if err != nil {
+			log.Fatalf("Error listing repositories: %v", err)
+		}
+		repos = append(repos, page...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
 	}
 	log.Printf("Found %d repositories", len(repos))
 
