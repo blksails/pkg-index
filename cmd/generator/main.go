@@ -80,9 +80,9 @@ func main() {
 			if fileContent, err := modContent.GetContent(); err == nil {
 				moduleName := parseModuleName(fileContent)
 				log.Printf("  Root module: %s", moduleName)
-				if strings.HasPrefix(moduleName, basePackage) {
-					repoImportPath := basePackage + "/" + repo.GetName()
-					pkgInfo := PackageInfo{
+			if strings.HasPrefix(moduleName, basePackage) {
+				repoImportPath := moduleName
+				pkgInfo := PackageInfo{
 						ImportPath:     moduleName,
 						RepoImportPath: repoImportPath,
 						RepoURL:        repo.GetHTMLURL(),
@@ -130,8 +130,7 @@ func main() {
 		}
 
 		// Check first-level subdirectories for go.mod (sub-modules)
-		repoImportPath := basePackage + "/" + repo.GetName()
-		repoRootGenerated := false
+		generatedRoots := make(map[string]bool)
 		for _, content := range contents {
 			if content.GetType() != "dir" {
 				continue
@@ -153,8 +152,10 @@ func main() {
 				continue
 			}
 
+			repoImportPath := strings.TrimSuffix(moduleName, "/"+subDir)
+
 			// Ensure repo root HTML exists for go-import verification
-			if !repoRootGenerated {
+			if !generatedRoots[repoImportPath] {
 				rootPkg := PackageInfo{
 					ImportPath:     repoImportPath,
 					RepoImportPath: repoImportPath,
@@ -165,7 +166,7 @@ func main() {
 					log.Printf("  Error generating repo root HTML for %s: %v", repoImportPath, err)
 				} else {
 					log.Printf("  ✓ Generated repo root HTML for %s", repoImportPath)
-					repoRootGenerated = true
+					generatedRoots[repoImportPath] = true
 				}
 			}
 
