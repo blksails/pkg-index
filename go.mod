@@ -10,5 +10,5 @@ require (
 require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
-	golang.org/x/crypto v0.44.0 // indirect
+	golang.org/x/crypto v0.48.0 // indirect
 )
